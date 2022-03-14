@@ -1,0 +1,44 @@
+---
+title: "check_data"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+rm(List = ls())
+library(data.table); library(dplyr)
+source("utils.R")
+```
+
+```{r}
+dt1 <- fread("../data/raw/CC data w rts for dmm.csv")
+setnames(dt1, tolower(names(dt1)))
+```
+
+```{r}
+ds(dt1)
+# treat country as studies
+dt1[, n_distinct(country)]
+dt1[, n_distinct(id)]
+dt1[, n_distinct(id), country][, sum(V1)]
+
+dt1[, n_distinct(id), keyby = .(country, condition)]
+dt1[, n_distinct(id), keyby = .(condition, country)]
+dt1[, n_distinct(condition), keyby = .(country)]
+dt1[, n_distinct(id), keyby = .(condition)]
+dt1[, n_distinct(id), keyby = .(country)]
+
+dt1[, .N, keyby = .(country, condition, id)][, summary(N)]
+dt1[, .N, keyby = .(country, condition, id)] %>% ds
+
+dt1$rt
+dt1[, unique(crt_acc)]
+dt1[, unique(perc_acc)]
+dt1[, unique(rating)]
+```
+
+
+
+
+
