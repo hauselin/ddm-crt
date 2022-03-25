@@ -1,0 +1,147 @@
+---
+title: "prep_data"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+rm(list = ls())
+library(data.table); library(dplyr); library(hausekeep)
+source("utils.R")
+```
+
+```{r}
+dt1 <- fread("../data/raw/CC data w rts for dmm.csv")
+setnames(dt1, tolower(names(dt1)))
+glimpse(dt1)
+```
+
+```{r prepare variables}
+# select only condition 3
+dt1[, unique(condition)]
+dt2 <- dt1[condition == 3]
+dt2
+dt2[, n_distinct(id)]
+
+# dichotomize ratings around midpoint 0.5
+dt2[, unique(rating)]
+ds(dt2)
+dt2[!is.na(rating), rating2 := ifelse(rating > 0.5, 1.0, 0)]
+dt2[, .(rating, rating2)][order(rating)] |> distinct()
+
+# recode rating2 to accuracy
+# 0=wrong answer (inaccurate if headline is true, accurate if headline is false)
+# 1=right answer (accurate if headline is true, inaccurate if headline is false)
+dt2[, unique(real)]
+dt2[, acc := 0.0]
+dt2[real == 1 & rating2 == 1, acc := 1.0]
+dt2[real == 1 & rating2 == 0, acc := 0.0]
+dt2[real == 0 & rating2 == 1, acc := 0.0]
+dt2[real == 0 & rating2 == 0, acc := 1.0]
+
+dt2[, .(real, rating2, acc)][order(real, rating2)] |> distinct()
+```
+
+```{r clean rt and outliers}
+n_initial <- dt2[, n_distinct(id)]
+n_initial
+
+# remove ids without crt_acc
+crt_na <- dt2[is.na(crt_acc), unique(id)]
+length(crt_na)
+dt2[id %in% crt_na, unique(crt_acc)]
+dt2 <- dt2[!id %in% crt_na]
+dt2[is.na(crt_acc)]
+
+n_total <- dt2[, n_distinct(id)]
+n_total
+dt2[!is.na(rt), .(trials = .N), id][, .N, trials][order(-trials)]
+dt2[!is.na(rt), .(trials = .N), id][, .N, trials][order(-trials)][, sum(N)]
+n_original <- dt2[!is.na(rt), .(trials = .N), id][, .N, trials][order(-trials)][trials >= 15, sum(N)]
+n_original
+
+# remove extreme fast/slow rt
+dt2[, .N]
+dt2[, hist(rt)]
+dt2[rt < 0.15, rt := NA]
+dt2[rt > 30, rt := NA]
+dt2[!is.na(rt), .N]
+dt2[!is.na(rt), .(trials = .N), id][, .N, trials][order(-trials)]
+n_update1 <- dt2[!is.na(rt), .(trials = .N), id][, .N, trials][order(-trials)][trials >= 15, sum(N)]
+n_update1
+n_update1 / n_initial
+n_update1 / n_original
+
+# remove rt outliers within subject
+dt2[, rtClean := rt]
+dt2[, rtClean := outliersMAD(rtClean, 3), .(id, country)]
+dt2[, hist(rtClean)]
+dt2[!is.na(rtClean), .N]
+dt2[!is.na(rtClean), .(trials = .N), id][, .N, trials][order(-trials)]
+n_update2 <- dt2[!is.na(rtClean), .(trials = .N), id][, .N, trials][order(-trials)][trials >= 15, sum(N)]
+n_update2
+n_update2 / n_initial
+n_update2 / n_original
+
+# clean up
+dt2[, rt := rtClean]
+dt2[, rtClean := NULL]
+dt2 <- dt2[!is.na(rt)]
+include <- dt2[, .(trials = .N), id][trials >= 15, id]
+dt3 <- dt2[id %in% include][order(id)]
+dt3[, n_distinct(id)]
+```
+
+
+```{r split data}
+frac <- 0.05
+floor(dt3[, n_distinct(id)] * frac) # small fraction of data
+floor(dt3[, n_distinct(id)] * (1 - frac)) # large fraction of data
+
+subjs <- dt3[, .(
+  acc = mean(acc),
+  rt = mean(rt), 
+  age = mean(age), 
+  conservative = mean(conservative), 
+  crt_acc = mean(crt_acc),
+  gender = mean(gender),
+  accimp = mean(accimp)
+), keyby = .(id, country, condition)]
+subjs
+
+crt_bins <- subjs[, n_distinct(crt_acc)]
+
+ns <- subjs[, .N, .(country, condition)]
+ns[, n_small := floor(frac * N)]
+ns[, n_large := floor((1 - frac) * N)]
+ns[, mean(n_small)]
+ns[, max(n_small)]
+ns[, median(n_small)]
+ns[, sum(n_small)]
+
+n_per_crt_bin <- 6
+
+# shuffle and sample/split
+set.seed(1)
+subjs <- subjs[sample(1:.N)]
+subjs_small <- subjs[, .SD[1:n_per_crt_bin], keyby = .(country, crt_acc)]
+subjs_small[, .N, keyby = .(country, condition, crt_acc)]
+subjs_small[, fold := 0]
+fold1_id <- subjs_small[, .(id, country)]
+fold1_id
+
+dt3[id %in% fold1_id$id, fold := 0]
+dt3[is.na(fold), fold := 1]
+```
+
+```{r check split/folds}
+folds <- dt3[, .(id, fold, country)] |> distinct()
+folds[, .N, keyby = .(country, fold)]
+folds[, .N, keyby = .(fold)]
+folds[, .N / n_update2, keyby = .(fold)]
+```
+
+```{r}
+fwrite(dt3, "../data/clean/data_fold01.csv")
+```
