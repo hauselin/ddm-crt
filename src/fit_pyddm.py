@@ -59,8 +59,6 @@ subjs = df.query("id in @subjs").sort_values(["condition", "id"])["id"].unique()
 
 from pyddm_m0 import fit_model
 
-subjs = subjs[:2]
-
 if __name__ == "__main__":
     with ProcessPoolExecutor(max_workers=PM["workers"]) as executor:
         # submit jobs
