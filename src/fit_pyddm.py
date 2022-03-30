@@ -30,7 +30,7 @@ PS = {
 PS["output_res"].mkdir(parents=True, exist_ok=True)
 PS["output_sim"].mkdir(parents=True, exist_ok=True)
 
-PM = {"workers": 20}
+PM = {"workers": 10}
 
 # %% prepare subjects' data
 
@@ -59,13 +59,15 @@ subjs = df.query("id in @subjs").sort_values(["condition", "id"])["id"].unique()
 
 from pyddm_m0 import fit_model
 
+subjs = subjs[:3]
+
 if __name__ == "__main__":
     with ProcessPoolExecutor(max_workers=PM["workers"]) as executor:
         # submit jobs
         futures = {}
         for s in subjs:
             df1 = df.query("id == @s").reset_index(drop=True)
-            futures[executor.submit(fit_model, df1)] = s
+            futures[executor.submit(fit_model, df1, PS)] = s
 
         # process completed jobs
         for i, f in enumerate(concurrent.futures.as_completed(futures)):
@@ -74,11 +76,7 @@ if __name__ == "__main__":
             msg = f"Finish DDM subject {s} ({n_left} left to process)"
             print(msg)
             try:
-                res, df_ddm = f.result()
-                res_fname = Path(PS["output_res"], f"subj_{s}.csv")
-                res.to_csv(res_fname, index=False)
-                df_fname = Path(PS["output_sim"], f"subj_{s}.csv")
-                df_ddm.to_csv(df_fname, index=False)
+                print(f.result())
             except Exception as e:
                 print(f"Exception: {e}")
             del futures[f]

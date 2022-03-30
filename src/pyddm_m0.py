@@ -49,7 +49,7 @@ import matplotlib.pyplot as plt
 # %%
 
 
-def fit_model(df_subject):
+def fit_model(df_subject, paths=None):
     print(f"Process id: {os.getpid()}")
 
     # prepare data for ddm
@@ -176,7 +176,14 @@ def fit_model(df_subject):
     df_ddm["id"] = res["id"][0]
     df_ddm
 
-    return res, df_ddm
+    if paths is None:
+        return res, df_ddm
+    s = res["id"][0]
+    res_fname = Path(paths["output_res"], f"subj_{s}.csv")
+    res.to_csv(res_fname, index=False)
+    df_fname = Path(paths["output_sim"], f"subj_{s}.csv")
+    df_ddm.to_csv(df_fname, index=False)
+    return "saved csv"
 
 
 #%%
