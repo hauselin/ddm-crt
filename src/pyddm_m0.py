@@ -98,9 +98,9 @@ def fit_model(df_subject):
     # define and fit model
     print(f"Fit model: {model_name}")
     driftlimit = 30
-    boundlimit = 0.2
+    boundlimit = 0.1
     retry = True
-    max_tries = 30
+    max_tries = 50
     i = 0  # counter to keep track of total attempts
     while retry and i < max_tries:
         i += 1
