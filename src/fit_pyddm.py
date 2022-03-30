@@ -30,7 +30,7 @@ PS = {
 PS["output_res"].mkdir(parents=True, exist_ok=True)
 PS["output_sim"].mkdir(parents=True, exist_ok=True)
 
-PM = {"workers": 10}
+PM = {"workers": 20}
 
 # %% prepare subjects' data
 
