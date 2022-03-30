@@ -2,3 +2,8 @@
 *.Rhistory
 **/*Rhistory*
 **/*.Rproj*
+
+venv/
+**/scratch.py
+**/scratch.Rmd
+**/scratch.R
