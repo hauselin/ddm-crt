@@ -1,0 +1,349 @@
+---
+title: "simulate correlations"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+rm(list = ls())
+library(tidyverse); library(data.table); library(RWiener); library(numDeriv); library(patchwork); library(correlation); library(broom)
+theme_set(theme_minimal())
+```
+
+```{r read data}
+# no pooling
+dt1 <- fread("../data/simulated_data_norm.csv")
+dt2 <- distinct(select(dt1, subj, alpha_true:delta_true, alpha:delta))
+dt2
+
+cor_method <- "spearman"
+p11 <- plot(cor_test(dt2, "alpha_true", "alpha", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p12 <- plot(cor_test(dt2, "tau_true", "tau", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p13 <- plot(cor_test(dt2, "beta_true", "beta", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+# p14 <- plot(cor_test(dt2[delta %between% c(-0.5, 0.5)], "delta_true", "delta", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p14 <- plot(cor_test(dt2, "delta_true", "delta", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p15 <- (p11 + p12) / (p13 + p14)
+p15
+
+# partial pooling
+fit <- read_rds("../data/simulated_data_normal_recovery_h.rds")
+params <- data.table(fit$allIndPars)
+setnames(params, c("subj", "alpha_partial", "beta_partial", "delta_partial", "tau_partial"))
+names(params)
+
+dt3 <- left_join(dt2, params) |> data.table()
+dt3
+```
+
+
+```{r simulate correlations - alpha/bound}
+set.seed(1)
+setDT(dt3)
+
+b <- seq(-1, 1, by = 0.1)
+e <- seq(1, 10, by = 2)
+met <- c("pearson", "spearman")
+(p_grid <- data.table(expand.grid(b = b, e = e, met = met, stringsAsFactors = FALSE)))
+
+param <- "alpha/bound"
+r <- 1
+for (r in 1:nrow(p_grid)) {
+    g <- p_grid[r, ]
+    # print(g)
+    
+    crt <- g$b * dt3$alpha_true + rnorm(dt3[, .N], 0, g$e)
+    # simulated parameters
+    crt_alpha_true <- tidy(cor.test(crt, dt3$alpha_true, method = g$met))
+    # recovered paraemters
+    crt_alpha <- tidy(cor.test(crt, dt3$alpha, method = g$met))
+    crt_alpha_partial <- tidy(cor.test(crt, dt3$alpha_partial, method = g$met))
+    
+    p_grid[r, sim_cor := crt_alpha_true$estimate]
+    p_grid[r, recovered_cor_nopool := crt_alpha$estimate]
+    p_grid[r, recovered_cor_pool := crt_alpha_partial$estimate]
+    
+    if (g$met == "pearson") {
+        p_grid[r, sim_cor_low := crt_alpha_true$conf.low]
+        p_grid[r, sim_cor_high := crt_alpha_true$conf.high]
+        p_grid[r, recovered_cor_nopool_low := crt_alpha$conf.low]
+        p_grid[r, recovered_cor_nopool_high := crt_alpha$conf.high]
+        p_grid[r, recovered_cor_pool_low := crt_alpha_partial$conf.low]
+        p_grid[r, recovered_cor_pool_high := crt_alpha_partial$conf.high]
+    }
+}
+
+# correlations
+p_grid[, .(r = round(cor(sim_cor, recovered_cor_nopool), 4)), keyby = .(met, e)]
+p_grid[, .(r = round(cor(sim_cor, recovered_cor_pool), 4)), keyby = .(met, e)]
+
+# compare residuals
+p_grid[, error_nopool := abs(sim_cor - recovered_cor_nopool)]
+p_grid[, error_pool := abs(sim_cor - recovered_cor_pool)]
+p_grid[, .(error_nopool = mean(error_nopool, na.rm = T), error_pool = mean(error_pool, na.rm = T))]
+p_grid[, t.test(error_nopool, error_pool, paired = TRUE)]
+
+# compare SEs
+p_grid[, nopoolSE := (recovered_cor_nopool_high - recovered_cor_nopool) / 1.96]
+p_grid[, poolSE := (recovered_cor_pool_high - recovered_cor_pool) / 1.96]
+p_grid[, t.test(nopoolSE, poolSE, paired = TRUE)]
+
+p1 <- ggplot(p_grid, aes(sim_cor, recovered_cor_nopool, col = b)) +
+    facet_grid(met ~ e, labeller = label_both) +
+    geom_abline(lty = 'dashed', col = 'grey') +
+    geom_point(size = 1) +
+    geom_errorbar(aes(ymin = recovered_cor_nopool_low, ymax = recovered_cor_nopool_high), width = 0) +
+    labs(title = paste0(param, " no pooling"))
+
+p2 <- ggplot(p_grid, aes(sim_cor, recovered_cor_pool, col = b)) +
+    facet_grid(met ~ e, labeller = label_both) +
+    geom_abline(lty = 'dashed', col = 'grey') +
+    geom_point(size = 1) +
+    geom_errorbar(aes(ymin = recovered_cor_pool_low, ymax = recovered_cor_pool_high), width = 0) +
+    labs(title = paste0(param, " partial pooling"))
+
+p3 <- p1 / p2
+p3
+
+fname <- "../figures/simulate_correlations/alpha-bound.png"
+# ggsave(fname, p3, dpi = 300, width = 13, height = 8, bg = 'white')
+```
+
+
+
+
+
+
+```{r simulate correlations - tau/ndt}
+set.seed(1)
+setDT(dt3)
+
+b <- seq(-1, 1, by = 0.1)
+e <- seq(1, 20, by = 4)
+met <- c("pearson", "spearman")
+(p_grid <- data.table(expand.grid(b = b, e = e, met = met, stringsAsFactors = FALSE)))
+
+param <- "tau/ndt"
+r <- 1
+for (r in 1:nrow(p_grid)) {
+    g <- p_grid[r, ]
+    # print(g)
+    
+    crt <- g$b * dt3$tau_true + rnorm(dt3[, .N], 0, g$e)
+    # simulated parameters
+    crt_tau_true <- tidy(cor.test(crt, dt3$tau_true, method = g$met))
+    # recovered paraemters
+    crt_tau <- tidy(cor.test(crt, dt3$tau, method = g$met))
+    crt_tau_partial <- tidy(cor.test(crt, dt3$tau_partial, method = g$met))
+    
+    p_grid[r, sim_cor := crt_tau_true$estimate]
+    p_grid[r, recovered_cor_nopool := crt_tau$estimate]
+    p_grid[r, recovered_cor_pool := crt_tau_partial$estimate]
+    
+    if (g$met == "pearson") {
+        p_grid[r, sim_cor_low := crt_tau_true$conf.low]
+        p_grid[r, sim_cor_high := crt_tau_true$conf.high]
+        p_grid[r, recovered_cor_nopool_low := crt_tau$conf.low]
+        p_grid[r, recovered_cor_nopool_high := crt_tau$conf.high]
+        p_grid[r, recovered_cor_pool_low := crt_tau_partial$conf.low]
+        p_grid[r, recovered_cor_pool_high := crt_tau_partial$conf.high]
+    }
+}
+
+# correlations
+p_grid[, .(r = round(cor(sim_cor, recovered_cor_nopool), 4)), keyby = .(met, e)]
+p_grid[, .(r = round(cor(sim_cor, recovered_cor_pool), 4)), keyby = .(met, e)]
+
+# compare residuals
+p_grid[, error_nopool := abs(sim_cor - recovered_cor_nopool)]
+p_grid[, error_pool := abs(sim_cor - recovered_cor_pool)]
+p_grid[, .(error_nopool = mean(error_nopool, na.rm = T), error_pool = mean(error_pool, na.rm = T))]
+p_grid[, t.test(error_nopool, error_pool, paired = TRUE)]
+
+# compare SEs
+p_grid[, nopoolSE := (recovered_cor_nopool_high - recovered_cor_nopool) / 1.96]
+p_grid[, poolSE := (recovered_cor_pool_high - recovered_cor_pool) / 1.96]
+p_grid[, t.test(nopoolSE, poolSE, paired = TRUE)]
+
+
+p1 <- ggplot(p_grid, aes(sim_cor, recovered_cor_nopool, col = b)) +
+    facet_grid(met ~ e, labeller = label_both) +
+    geom_abline(lty = 'dashed', col = 'grey') +
+    geom_point(size = 1) +
+    geom_errorbar(aes(ymin = recovered_cor_nopool_low, ymax = recovered_cor_nopool_high), width = 0) +
+    labs(title = paste0(param, " no pooling"))
+
+p2 <- ggplot(p_grid, aes(sim_cor, recovered_cor_pool, col = b)) +
+    facet_grid(met ~ e, labeller = label_both) +
+    geom_abline(lty = 'dashed', col = 'grey') +
+    geom_point(size = 1) +
+    geom_errorbar(aes(ymin = recovered_cor_pool_low, ymax = recovered_cor_pool_high), width = 0) +
+    labs(title = paste0(param, " partial pooling"))
+
+p3 <- p1 / p2
+p3
+
+fname <- "../figures/simulate_correlations/tau-ndt.png"
+# ggsave(fname, p3, dpi = 300, width = 13, height = 8, bg = 'white')
+```
+
+
+
+
+
+
+
+```{r simulate correlations - beta/bias}
+set.seed(1)
+setDT(dt3)
+
+b <- seq(-3, 3, by = 0.2)
+e <- seq(1, 5, by = 1)
+met <- c("pearson", "spearman")
+(p_grid <- data.table(expand.grid(b = b, e = e, met = met, stringsAsFactors = FALSE)))
+
+param <- "beta/bias"
+r <- 1
+for (r in 1:nrow(p_grid)) {
+    g <- p_grid[r, ]
+    # print(g)
+    
+    crt <- g$b * dt3$beta_true + rnorm(dt3[, .N], 0, g$e)
+    # simulated parameters
+    crt_beta_true <- tidy(cor.test(crt, dt3$beta_true, method = g$met))
+    # recovered paraemters
+    crt_beta <- tidy(cor.test(crt, dt3$beta, method = g$met))
+    crt_beta_partial <- tidy(cor.test(crt, dt3$beta_partial, method = g$met))
+    
+    p_grid[r, sim_cor := crt_beta_true$estimate]
+    p_grid[r, recovered_cor_nopool := crt_beta$estimate]
+    p_grid[r, recovered_cor_pool := crt_beta_partial$estimate]
+    
+    if (g$met == "pearson") {
+        p_grid[r, sim_cor_low := crt_beta_true$conf.low]
+        p_grid[r, sim_cor_high := crt_beta_true$conf.high]
+        p_grid[r, recovered_cor_nopool_low := crt_beta$conf.low]
+        p_grid[r, recovered_cor_nopool_high := crt_beta$conf.high]
+        p_grid[r, recovered_cor_pool_low := crt_beta_partial$conf.low]
+        p_grid[r, recovered_cor_pool_high := crt_beta_partial$conf.high]
+    }
+}
+
+# correlations
+p_grid[, .(r = round(cor(sim_cor, recovered_cor_nopool), 4)), keyby = .(met, e)]
+p_grid[, .(r = round(cor(sim_cor, recovered_cor_pool), 4)), keyby = .(met, e)]
+
+# compare residuals
+p_grid[, error_nopool := abs(sim_cor - recovered_cor_nopool)]
+p_grid[, error_pool := abs(sim_cor - recovered_cor_pool)]
+p_grid[, .(error_nopool = mean(error_nopool, na.rm = T), error_pool = mean(error_pool, na.rm = T))]
+p_grid[, t.test(error_nopool, error_pool, paired = TRUE)]
+
+# compare SEs
+p_grid[, nopoolSE := (recovered_cor_nopool_high - recovered_cor_nopool) / 1.96]
+p_grid[, poolSE := (recovered_cor_pool_high - recovered_cor_pool) / 1.96]
+p_grid[, t.test(nopoolSE, poolSE, paired = TRUE)]
+
+
+p1 <- ggplot(p_grid, aes(sim_cor, recovered_cor_nopool, col = b)) +
+    facet_grid(met ~ e, labeller = label_both) +
+    geom_abline(lty = 'dashed', col = 'grey') +
+    geom_point(size = 1) +
+    geom_errorbar(aes(ymin = recovered_cor_nopool_low, ymax = recovered_cor_nopool_high), width = 0) +
+    labs(title = paste0(param, " no pooling"))
+
+p2 <- ggplot(p_grid, aes(sim_cor, recovered_cor_pool, col = b)) +
+    facet_grid(met ~ e, labeller = label_both) +
+    geom_abline(lty = 'dashed', col = 'grey') +
+    geom_point(size = 1) +
+    geom_errorbar(aes(ymin = recovered_cor_pool_low, ymax = recovered_cor_pool_high), width = 0) +
+    labs(title = paste0(param, " partial pooling"))
+
+p3 <- p1 / p2
+p3
+
+fname <- "../figures/simulate_correlations/beta-bias.png"
+# ggsave(fname, p3, dpi = 300, width = 13, height = 8, bg = 'white')
+```
+
+
+
+
+
+
+
+
+```{r simulate correlations - delta/drift}
+set.seed(1)
+setDT(dt3)
+
+b <- seq(-10, 10, by = 0.5)
+e <- seq(1, 10, by = 2)
+met <- c("pearson", "spearman")
+(p_grid <- data.table(expand.grid(b = b, e = e, met = met, stringsAsFactors = FALSE)))
+
+param <- "delta/drift"
+r <- 1
+for (r in 1:nrow(p_grid)) {
+    g <- p_grid[r, ]
+    # print(g)
+    
+    crt <- g$b * dt3$delta_true + rnorm(dt3[, .N], 0, g$e)
+    # simulated parameters
+    crt_delta_true <- tidy(cor.test(crt, dt3$delta_true, method = g$met))
+    # recovered paraemters
+    crt_delta <- tidy(cor.test(crt, dt3$delta, method = g$met))
+    crt_delta_partial <- tidy(cor.test(crt, dt3$delta_partial, method = g$met))
+    
+    p_grid[r, sim_cor := crt_delta_true$estimate]
+    p_grid[r, recovered_cor_nopool := crt_delta$estimate]
+    p_grid[r, recovered_cor_pool := crt_delta_partial$estimate]
+    
+    if (g$met == "pearson") {
+        p_grid[r, sim_cor_low := crt_delta_true$conf.low]
+        p_grid[r, sim_cor_high := crt_delta_true$conf.high]
+        p_grid[r, recovered_cor_nopool_low := crt_delta$conf.low]
+        p_grid[r, recovered_cor_nopool_high := crt_delta$conf.high]
+        p_grid[r, recovered_cor_pool_low := crt_delta_partial$conf.low]
+        p_grid[r, recovered_cor_pool_high := crt_delta_partial$conf.high]
+    }
+}
+
+# correlations
+p_grid[, .(r = round(cor(sim_cor, recovered_cor_nopool), 4)), keyby = .(met, e)]
+p_grid[, .(r = round(cor(sim_cor, recovered_cor_pool), 4)), keyby = .(met, e)]
+
+# compare residuals
+p_grid[, error_nopool := abs(sim_cor - recovered_cor_nopool)]
+p_grid[, error_pool := abs(sim_cor - recovered_cor_pool)]
+p_grid[, .(error_nopool = mean(error_nopool, na.rm = T), error_pool = mean(error_pool, na.rm = T))]
+p_grid[, t.test(error_nopool, error_pool, paired = TRUE)]
+
+# compare SEs
+p_grid[, nopoolSE := (recovered_cor_nopool_high - recovered_cor_nopool) / 1.96]
+p_grid[, poolSE := (recovered_cor_pool_high - recovered_cor_pool) / 1.96]
+p_grid[, t.test(nopoolSE, poolSE, paired = TRUE)]
+
+
+p1 <- ggplot(p_grid, aes(sim_cor, recovered_cor_nopool, col = b)) +
+    facet_grid(met ~ e, labeller = label_both) +
+    geom_abline(lty = 'dashed', col = 'grey') +
+    geom_point(size = 1) +
+    geom_errorbar(aes(ymin = recovered_cor_nopool_low, ymax = recovered_cor_nopool_high), width = 0) +
+    labs(title = paste0(param, " no pooling"))
+
+p2 <- ggplot(p_grid, aes(sim_cor, recovered_cor_pool, col = b)) +
+    facet_grid(met ~ e, labeller = label_both) +
+    geom_abline(lty = 'dashed', col = 'grey') +
+    geom_point(size = 1) +
+    geom_errorbar(aes(ymin = recovered_cor_pool_low, ymax = recovered_cor_pool_high), width = 0) +
+    labs(title = paste0(param, " partial pooling"))
+
+p3 <- p1 / p2
+p3
+
+fname <- "../figures/simulate_correlations/delta-drift.png"
+# ggsave(fname, p3, dpi = 300, width = 13, height = 8, bg = 'white')
+```
+
+

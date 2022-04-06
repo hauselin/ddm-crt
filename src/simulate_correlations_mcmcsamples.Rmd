@@ -1,0 +1,137 @@
+---
+title: "simulate correlations"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+rm(list = ls())
+library(tidyverse); library(data.table); library(RWiener); library(numDeriv); library(patchwork); library(correlation); library(broom); 
+theme_set(theme_minimal())
+source("utils.R")
+```
+
+```{r read data}
+# no pooling
+dt1 <- fread("../data/simulated_data_norm.csv")
+dt2 <- distinct(select(dt1, subj, alpha_true:delta_true, alpha:delta))
+dt2
+
+cor_method <- "spearman"
+p11 <- plot(cor_test(dt2, "alpha_true", "alpha", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p12 <- plot(cor_test(dt2, "tau_true", "tau", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p13 <- plot(cor_test(dt2, "beta_true", "beta", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+# p14 <- plot(cor_test(dt2[delta %between% c(-0.5, 0.5)], "delta_true", "delta", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p14 <- plot(cor_test(dt2, "delta_true", "delta", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p15 <- (p11 + p12) / (p13 + p14)
+p15
+
+# partial pooling
+fit <- read_rds("../data/simulated_data_normal_recovery_h.rds")
+params <- data.table(fit$allIndPars)
+setnames(params, c("subj", "alpha_partial", "beta_partial", "delta_partial", "tau_partial"))
+names(params)
+
+dt3 <- left_join(dt2, params) |> data.table()
+dt3
+```
+
+
+
+```{r}
+samps <- get_samples(fit)
+samps <- samps[!grepl("mu_", param)]
+samps <- samps[!grepl("lp__", param)]
+samps[, unique(param)]
+samps[, subj := param]
+samps[, subj := gsub("alpha[", "", subj, fixed = TRUE)]
+samps[, subj := gsub("beta[", "", subj, fixed = TRUE)]
+samps[, subj := gsub("delta[", "", subj, fixed = TRUE)]
+samps[, subj := gsub("tau[", "", subj, fixed = TRUE)]
+samps[, subj := gsub("log_lik[", "", subj, fixed = TRUE)]
+samps[, subj := gsub("sigma[", "", subj, fixed = TRUE)]
+samps[, subj := gsub("]", "", subj, fixed = TRUE)]
+samps[, unique(subj)]
+samps[, subj := as.numeric(subj)]
+samps <- samps[order(param, subj, idx)]
+```
+
+```{r alpha/bound}
+set.seed(1)
+param_samp <- samps[grepl("alpha", param) & idx == 1]
+
+b <- 0.5
+e <- 0.2
+idx <- samps[, unique(idx)]
+idx <- sample(idx, 1000, replace = FALSE)
+(p_grid <- data.table(expand.grid(b = b, e = e, idx = idx, stringsAsFactors = FALSE)))
+
+r <- 1
+for (r in 1:nrow(p_grid)) {
+    print(r)
+    g <- p_grid[r, ]
+    # print(g)
+    param_samp <- samps[grepl("alpha", param) & idx == g$idx]
+    
+    crt <- g$b * dt3$alpha_true + rnorm(dt3[, .N], 0, g$e)
+    param_samp$crt <- crt
+    param_samp$alpha_true <- dt3$alpha_true
+    
+    crt_alpha_true <- tidy(cor.test(crt, dt3$alpha_true))
+    crt_alpha <- tidy(cor.test(crt, param_samp$samp))
+    
+    p_grid[r, sim_cor := crt_alpha_true$estimate]
+    p_grid[r, recovered_cor := crt_alpha$estimate]
+}
+```
+
+```{r}
+p1 <- ggplot(p_grid) + 
+    geom_histogram(aes(sim_cor), fill = 'red') +
+    geom_histogram(aes(recovered_cor), fill = 'blue')
+p1
+```
+
+
+
+```{r alpha/bound}
+set.seed(1)
+
+b <- 0.3
+e <- 0.5
+n_samps <- 5000
+idx <- samps[, unique(idx)]
+idxs <- sample(idx, n_samps, replace = FALSE)
+(p_grid <- data.table(expand.grid(b = b, e = e, stringsAsFactors = FALSE)))
+
+r <- 1
+for (r in 1:nrow(p_grid)) {
+    print(r)
+    g <- p_grid[r, ]
+    # print(g)
+    param_samp <- samps[grepl("alpha", param) & idx %in% idxs]
+    
+    crt <- g$b * dt3$alpha_true + rnorm(dt3[, .N], 0, g$e)
+    dt3[, crt := NULL]
+    dt3[, crt := crt]
+    dt4 <- dt3[, .(subj, crt, alpha_true)]
+    
+    param_samp <- param_samp[dt4, on = 'subj']
+    samp_cors <- param_samp[, .(sim_cor = cor(crt, alpha_true), recovered_cor = cor(crt, samp)), keyby = .(idx)]
+    
+    res <- param_samp[idx == idx[1], tidy(cor.test(crt, alpha_true))]
+}
+
+p1 <- ggplot(samp_cors) + 
+    geom_histogram(aes(recovered_cor)) +
+    geom_vline(xintercept = samp_cors[, unique(sim_cor)], size = 1, lty = 'dashed') +
+    geom_vline(xintercept = res$conf.low, size = 0.5, lty = 'dashed') +
+    geom_vline(xintercept = res$conf.high, size = 0.5, lty = 'dashed') +
+    geom_vline(xintercept = samp_cors[, mean(recovered_cor)], size = 1, col = 'red') +
+    scale_x_continuous(limits = c(0.4, 0.9))
+p1
+
+sd(samp_cors$recovered_cor)
+summary(samp_cors$recovered_cor)
+```

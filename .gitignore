@@ -7,3 +7,9 @@ venv/
 **/scratch.py
 **/scratch.Rmd
 **/scratch.R
+
+**/*.rds
+./.git/objects/pack/pack-3e50be74004e24d85584964f6f4cf86cfe6560d8.pack
+./.git/objects/pack/pack-0e6ec27b07ab24d609fdd844867cb4b7a583cacd.pack
+./data/simulated_data_recovery_h.rds
+./data/simulated_data_normal_recovery_h.rds
