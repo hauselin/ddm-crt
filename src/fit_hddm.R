@@ -5,11 +5,11 @@ theme_set(theme_minimal())
 #%%
 
 cores <- 1  # unused parameter for now
-f <- 0  # which fold 
+# f <- 0  # which fold 
 dt1 <- fread("../data/clean/data_fold01.csv")
 n_countries <- dt1[, n_distinct(country)]
 dt1[, unique(country)]
-dt1 <- dt1[fold == f]
+# dt1 <- dt1[fold == f]
 
 fit_model <- function(x) {
     # prep data
@@ -29,7 +29,7 @@ fit_model <- function(x) {
 
 
 # results <- mclapply(1:n_countries, fit_model, mc.cores = cores)
-for (c in 1:n_countries) {
+for (c in 3:n_countries) {
     print(paste0("fitting model to country ", c))
     fit_model(c)
 }
