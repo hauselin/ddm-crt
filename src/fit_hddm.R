@@ -24,5 +24,5 @@ fit_model <- function(x) {
     write_rds(fit, output)
 }
 
-fit_model(1)
+fit_model(2)
 
