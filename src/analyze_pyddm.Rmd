@@ -1,0 +1,550 @@
+---
+title: "analyze_pyddm"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+rm(list = ls())
+library(tidyverse); library(data.table); library(patchwork); library(hausekeep); library(lme4); library(lmerTest); library(ggbeeswarm); library(glue); library(modelsummary); library(brms)
+source('utils.R')
+theme_set(theme_minimal())
+```
+
+```{r}
+fname <- "../results/params_pyddm_m0.csv"
+# read and merge data
+# p <- "../results/params_pyddm_m0"
+# l <- lapply(list.files(p, pattern = "*.csv", full.names = T), fread)
+# length(l)
+# d <- rbindlist(l)
+# fwrite(d, fname)
+
+# read merged data
+d <- fread(fname)
+d[, unique(condition)]
+d <- d[condition %in% c(3)]
+nrow(d)  # should be 7450 subjects
+d[, unique(condition)]
+```
+
+```{r check data}
+d[, table(result)]
+# d <- d[result == "success"]
+d[, model_repr := NULL]
+d
+```
+
+```{r recode}
+setnames(d, "country", "Country")
+```
+
+```{r check and plot model fit}
+d[, cor.test(acc, acc_pred)]
+d[, cor.test(rt_pred, rt)]
+d[, cor.test(rt0_pred, rt0)]
+d[, cor.test(rt1_pred, rt1)]
+
+dotsize <- 0.1
+dotalpha <- 0.8
+linecol <- "#b73779"
+linesize <- 0.8
+width <- 8
+height <- 8
+dpi <- 300
+
+ggplot(d, aes(acc_pred, acc)) +
+    facet_wrap(~ Country) +
+    geom_abline(col = linecol, size = linesize) +
+    geom_point(size = dotsize, alpha = dotalpha) +
+    labs(x = "Model-predicted accuracy (correct proportion)", y = "Observed accuracy (correct proportion)")
+ggsave("../figures/pyddm_m0/acc_pred.png", width = width, height = height, dpi = dpi, bg = 'white')
+
+ggplot(d, aes(rt_pred, rt)) +
+    facet_wrap(~ Country) +
+    geom_abline(col = linecol, size = linesize) +
+    geom_point(size = dotsize, alpha = dotalpha) +
+    labs(x = "Model-predicted RT (s)", y = "Observed RT (s)") 
+ggsave("../figures/pyddm_m0/rt_pred.png", width = width, height = height, dpi = dpi, bg = 'white')
+
+ggplot(d, aes(rt0_pred, rt0)) +
+    facet_wrap(~ Country) +
+    geom_abline(col = linecol, size = linesize) +
+    geom_point(size = dotsize, alpha = dotalpha) +
+    labs(x = "Model-predicted RT (incorrect responses)", y = "Observed RT (incorrect responses)") 
+ggsave("../figures/pyddm_m0/rt0_pred.png", width = width, height = height, dpi = dpi, bg = 'white')
+
+ggplot(d, aes(rt1_pred, rt1)) +
+    facet_wrap(~ Country) +
+    geom_abline(col = linecol, size = linesize) +
+    geom_point(size = dotsize, alpha = dotalpha) +
+    labs(x = "Model-predicted sharing RT (correct responses)", y = "Observed sharing RT (correct responses)") 
+ggsave("../figures/pyddm_m0/rt1_pred.png", width = width, height = height, dpi = dpi, bg = 'white')
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r main figure}
+dotsize <- 0.5
+dodge <- 0.9
+boxlinecol <- '#51127c'
+width <- 8
+height <- 4
+dpi <- 300
+
+d2 <- melt(d, 
+           id.vars = c("Platform", "Condition", "id"), 
+           measure.vars = c("loss", "driftb0", "driftb1", "B", "x0", "nondectime"), 
+           variable.name = "Parameter", value.name = "Value")
+d2[, Parameter := factor(Parameter, 
+                         levels = c("B", "driftb1", "loss", "driftb0", "x0", "nondectime"), 
+                         labels = c("Boundary", "Weight on accuracy", "Loss", "Average drift rate", "Starting point", "Non-decision time"))]
+
+ggplot(d2[Parameter %in% c("Boundary", "Weight on accuracy")], aes(as.factor(Platform), Value, fill = Condition, col = Condition)) +
+  facet_wrap(~Parameter, scales = "free_y") +
+  scale_fill_viridis_d(begin = 0.1, end = 0.5, option = 'magma') +
+  scale_color_viridis_d(begin = 0.1, end = 0.5, option = 'magma') +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), adjust = 3, trim = TRUE, alpha = 0.2, col = 'white') +
+  geom_boxplot(position = position_dodge(dodge), size = dotsize, outlier.alpha = 0.3, width = 0.1, outlier.size = 0.3) +
+  scale_y_continuous(n.breaks = 8) +
+  labs(x = "Recruitment platform", y = "Parameter value") +
+  ggtheme
+
+ggsave("../figures/pyddm__drift_perc_acc/param_B-driftb1.png", width = width, height = height, dpi = dpi)
+```
+
+
+
+
+
+
+
+
+
+
+```{r conditon differences in parameters}
+params <- c("driftb0", "driftb1", "B", "nondectime", "x0")
+d[, lapply(.SD, mean, na.rm = T), keyby = .(Platform, condition), .SDcols = params]
+
+dotsize <- 0.5
+dodge <- 0.9
+boxlinecol <- '#51127c'
+width <- 5
+height <- 5
+dpi <- 300
+
+ggplot(d, aes(as.factor(Platform), driftb1, fill = Condition, col = Condition)) +
+    scale_fill_viridis_d(begin = 0.1, end = 0.5, option = 'magma') +
+    scale_color_viridis_d(begin = 0.1, end = 0.5, option = 'magma') +
+    geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), adjust = 3, trim = TRUE, alpha = 0.2, col = 'white') +
+    geom_boxplot(position = position_dodge(dodge), size = dotsize, outlier.alpha = 0.3, width = 0.1, outlier.size = 0.3) +
+    scale_y_continuous(n.breaks = 8) +
+    labs(x = "Recruitment platform", y = "Drift rate - weight on accuracy") +
+    ggtheme
+ggsave("../figures/pyddm__drift_perc_acc/param-driftb1.png", width = width, height = height, dpi = dpi)
+
+ggplot(d, aes(as.factor(Platform), driftb0, fill = Condition, col = Condition)) +
+    scale_fill_viridis_d(begin = 0.1, end = 0.5, option = 'magma') +
+    scale_color_viridis_d(begin = 0.1, end = 0.5, option = 'magma') +
+    geom_violin(draw_quantiles = c(0.05, 0.25, 0.5, 0.75, 0.95), adjust = 3, trim = TRUE, alpha = 0.2, col = 'white') +
+    geom_boxplot(position = position_dodge(dodge), size = dotsize, outlier.alpha = 0.3, width = 0.1, outlier.size = 0.3) +
+    scale_y_continuous(n.breaks = 8) +
+    labs(x = "Recruitment platform", y = "Drift rate (average)") +
+    ggtheme
+ggsave("../figures/pyddm__drift_perc_acc/param-driftb0.png", width = width, height = height, dpi = dpi)
+
+ggplot(d, aes(as.factor(Platform), B, fill = Condition, col = Condition)) +
+    scale_fill_viridis_d(begin = 0.1, end = 0.5, option = 'magma') +
+    scale_color_viridis_d(begin = 0.1, end = 0.5, option = 'magma') +
+    geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), adjust = 3, trim = TRUE, alpha = 0.2, col = 'white') +
+    geom_boxplot(position = position_dodge(dodge), size = dotsize, outlier.alpha = 0.3, width = 0.1, outlier.size = 0.3) +
+    scale_y_continuous(n.breaks = 8) +
+    labs(x = "Recruitment platform", y = "Boundary") +
+    ggtheme
+ggsave("../figures/pyddm__drift_perc_acc/param-b.png", width = width, height = height, dpi = dpi)
+
+ggplot(d, aes(as.factor(Platform), x0, fill = Condition, col = Condition)) +
+    scale_fill_viridis_d(begin = 0.1, end = 0.5, option = 'magma') +
+    scale_color_viridis_d(begin = 0.1, end = 0.5, option = 'magma') +
+    geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), adjust = 3, trim = TRUE, alpha = 0.2, col = 'white') +
+    geom_boxplot(position = position_dodge(dodge), size = dotsize, outlier.alpha = 0.3, width = 0.1, outlier.size = 0.3) +
+    scale_y_continuous(n.breaks = 8) +
+    labs(x = "Recruitment platform", y = "Starting point") +
+    ggtheme
+ggsave("../figures/pyddm__drift_perc_acc/param-startingpoint.png", width = width, height = height, dpi = dpi)
+
+
+ggplot(d, aes(as.factor(Platform), nondectime, fill = Condition, col = Condition)) +
+    scale_fill_viridis_d(begin = 0.1, end = 0.5, option = 'magma') +
+    scale_color_viridis_d(begin = 0.1, end = 0.5, option = 'magma') +
+    geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), adjust = 3, trim = TRUE, alpha = 0.2, col = 'white') +
+    geom_boxplot(position = position_dodge(dodge), size = dotsize, outlier.alpha = 0.3, width = 0.1, outlier.size = 0.3) +
+    scale_y_continuous(n.breaks = 8) +
+    labs(x = "Recruitment platform", y = "Non-decision time") +
+    ggtheme
+ggsave("../figures/pyddm__drift_perc_acc/param-ndt.png", width = width, height = height, dpi = dpi)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r registered models - varying intercept and slopes}
+d[, platformEC := ifelse(Platform == "Lucid", 0, 1)]
+d[, platformZ := zscore(platformEC)]
+d[condition %in% c(0, 1), conditionEC := ifelse(condition == 0, -0.5, 0.5)]
+d[, .(Platform, Condition, platformZ, conditionEC)] %>% distinct() %>% arrange(conditionEC)
+d[condition %in% c(0, 1)]
+
+d[condition %in% c(0, 1), summaryh(lmer(driftb1 ~ conditionEC * platformZ + (1 + conditionEC | study)))]
+d[condition %in% c(0, 1), summaryh(lmer(driftb0 ~ conditionEC * platformZ + (1 + conditionEC | study)))]
+d[condition %in% c(0, 1), summaryh(lmer(B ~ conditionEC * platformZ + (1 + conditionEC | study)))]
+d[condition %in% c(0, 1), summaryh(lmer(x0 ~ conditionEC * platformZ + (1 + conditionEC | study)))]
+d[condition %in% c(0, 1), summaryh(lmer(nondectime ~ conditionEC * platformZ + (1 + conditionEC | study)))]
+
+d[condition %in% c(0, 1), summaryh(lmer(loss ~ conditionEC * platformZ + (1 + conditionEC | study)))]
+```
+
+```{r models - varying intercept}
+d[condition %in% c(0, 1), summaryh(lmer(driftb1 ~ conditionEC * platformZ + (1 | study)))]
+d[condition %in% c(0, 1), summaryh(lmer(driftb0 ~ conditionEC * platformZ + (1 + conditionEC | study)))]
+d[condition %in% c(0, 1), summaryh(lmer(B ~ conditionEC * platformZ + (1 | study)))]
+d[condition %in% c(0, 1), summaryh(lmer(x0 ~ conditionEC * platformZ + (1 | study)))]
+d[condition %in% c(0, 1), summaryh(lmer(nondectime ~ conditionEC * platformZ + (1  | study)))]
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r parameter ~ crt_acc}
+# plot params
+width <- 13
+height <- 5
+dpi <- 300
+
+params <- c("driftb1", "driftb0", "B", "nondectime", "x0")
+d[, crt_accZ := (crt_acc - mean(crt_acc, na.rm = T)) / sd(crt_acc, na.rm = T)]
+
+models_crt_accZ <- list()
+m <- lmer(driftb1 ~ crt_accZ * platformZ + (1 + crt_accZ | study), d[condition == 0])
+models_crt_accZ[['driftb1 ~ crt_accZ']] <- m
+
+m <- lmer(driftb0 ~ crt_accZ * platformZ + (1 + crt_accZ | study), d[condition == 0])
+models_crt_accZ[['driftb0 ~ crt_accZ']] <- m
+
+m <- lmer(B ~ crt_accZ * platformZ + (1 + crt_accZ | study), d[condition == 0])
+models_crt_accZ[['B ~ crt_accZ']] <- m
+
+m <- lmer(nondectime ~ crt_accZ * platformZ + (1 + crt_accZ | study), d[condition == 0])
+models_crt_accZ[['nondectime ~ crt_accZ']] <- m
+
+m <- lmer(x0 ~ crt_accZ * platformZ + (1 + crt_accZ | study), d[condition == 0])
+models_crt_accZ[['x0 ~ crt_accZ']] <- m
+
+names(models_crt_accZ)
+models_crt_accZ <- dvnames(models_crt_accZ)
+plot_crt_accZ <- modelplot(models_crt_accZ, color = "black", coef_omit = c("(Intercept)")) + facet_grid(~ model, scales = "free_x")
+plot_crt_accZ
+  
+plot_crt_accZ <- plot_crt_accZ + 
+  geom_vline(xintercept = 0, col = 'grey', lty = 'dashed')
+plot_crt_accZ
+
+summaryh(models_crt_accZ$driftb1)
+summaryh(models_crt_accZ$B)
+
+ggsave("../figures/pyddm__drift_perc_acc/param_crt_accZ.png", width = width, height = height, dpi = dpi)
+```
+
+
+
+
+```{r parameter ~ conservative}
+d[, conservativeZ := (conservative - mean(conservative, na.rm = T)) / sd(conservative, na.rm = T)]
+
+models_conservativeZ <- list()
+m <- lmer(driftb1 ~ conservativeZ * platformZ + (1 + conservativeZ | study), d[condition == 0])
+models_conservativeZ[['driftb1 ~ conservativeZ']] <- m
+
+m <- lmer(driftb0 ~ conservativeZ * platformZ + (1 + conservativeZ | study), d[condition == 0])
+models_conservativeZ[['driftb0 ~ conservativeZ']] <- m
+
+m <- lmer(B ~ conservativeZ * platformZ + (1 + conservativeZ | study), d[condition == 0])
+models_conservativeZ[['B ~ conservativeZ']] <- m
+
+m <- lmer(nondectime ~ conservativeZ * platformZ + (1 + conservativeZ | study), d[condition == 0])
+models_conservativeZ[['nondectime ~ conservativeZ']] <- m
+
+m <- lmer(x0 ~ conservativeZ * platformZ + (1 + conservativeZ | study), d[condition == 0])
+models_conservativeZ[['x0 ~ conservativeZ']] <- m
+
+names(models_conservativeZ)
+models_conservativeZ <- dvnames(models_conservativeZ)
+plot_conservativeZ <- modelplot(models_conservativeZ, color = "black", coef_omit = c("(Intercept)")) + facet_grid(~ model, scales = "free_x")
+plot_conservativeZ
+  
+plot_conservativeZ <- plot_conservativeZ + 
+  geom_vline(xintercept = 0, col = 'grey', lty = 'dashed')
+plot_conservativeZ
+
+summaryh(models_conservativeZ$driftb0)
+summaryh(models_conservativeZ$driftb1)
+
+ggsave("../figures/pyddm__drift_perc_acc/param_conservativeZ.png", width = width, height = height, dpi = dpi)
+```
+
+
+
+
+
+
+
+```{r parameter ~ age}
+d[, ageZ := (age - mean(age, na.rm = T)) / sd(age, na.rm = T)]
+
+models_ageZ <- list()
+m <- lmer(driftb1 ~ ageZ * platformZ + (1 + ageZ | study), d[condition == 0])
+models_ageZ[['driftb1 ~ ageZ']] <- m
+
+m <- lmer(driftb0 ~ ageZ * platformZ + (1 + ageZ | study), d[condition == 0])
+models_ageZ[['driftb0 ~ ageZ']] <- m
+
+m <- lmer(B ~ ageZ * platformZ + (1 + ageZ | study), d[condition == 0])
+models_ageZ[['B ~ ageZ']] <- m
+
+m <- lmer(nondectime ~ ageZ * platformZ + (1 + ageZ | study), d[condition == 0])
+models_ageZ[['nondectime ~ ageZ']] <- m
+
+m <- lmer(x0 ~ ageZ * platformZ + (1 + ageZ | study), d[condition == 0])
+models_ageZ[['x0 ~ ageZ']] <- m
+
+names(models_ageZ)
+models_ageZ <- dvnames(models_ageZ)
+plot_ageZ <- modelplot(models_ageZ, color = "black", coef_omit = c("(Intercept)")) + facet_grid(~ model, scales = "free_x")
+plot_ageZ
+  
+plot_ageZ <- plot_ageZ + 
+  geom_vline(xintercept = 0, col = 'grey', lty = 'dashed')
+plot_ageZ
+
+summaryh(models_ageZ$driftb0)
+summaryh(models_ageZ$driftb1)
+
+ggsave("../figures/pyddm__drift_perc_acc/param_ageZ.png", width = width, height = height, dpi = dpi)
+```
+
+
+
+
+
+```{r parameter ~ gender}
+d[, table(gender)]
+d[gender == 1, genderZ := 0]
+d[gender == 2, genderZ := 1]
+d[, genderZ := (genderZ - mean(genderZ, na.rm = T)) / sd(genderZ, na.rm = T)]
+d[, table(genderZ)]
+d[is.na(genderZ), .N]
+
+models_genderZ <- list()
+m <- lmer(driftb1 ~ genderZ * platformZ + (1 + genderZ | study), d[condition == 0])
+models_genderZ[['driftb1 ~ genderZ']] <- m
+
+m <- lmer(driftb0 ~ genderZ * platformZ + (1 + genderZ | study), d[condition == 0])
+models_genderZ[['driftb0 ~ genderZ']] <- m
+
+m <- lmer(B ~ genderZ * platformZ + (1 + genderZ | study), d[condition == 0])
+models_genderZ[['B ~ genderZ']] <- m
+
+m <- lmer(nondectime ~ genderZ * platformZ + (1 + genderZ | study), d[condition == 0])
+models_genderZ[['nondectime ~ genderZ']] <- m
+
+m <- lmer(x0 ~ genderZ * platformZ + (1 + genderZ | study), d[condition == 0])
+models_genderZ[['x0 ~ genderZ']] <- m
+
+names(models_genderZ)
+models_genderZ <- dvnames(models_genderZ)
+plot_genderZ <- modelplot(models_genderZ, color = "black", coef_omit = c("(Intercept)")) + facet_grid(~ model, scales = "free_x")
+plot_genderZ
+  
+plot_genderZ <- plot_genderZ + 
+  geom_vline(xintercept = 0, col = 'grey', lty = 'dashed')
+plot_genderZ
+
+summaryh(models_genderZ$driftb0)
+summaryh(models_genderZ$driftb1)
+
+ggsave("../figures/pyddm__drift_perc_acc/param_genderZ.png", width = width, height = height, dpi = dpi)
+```
+
+
+
+
+
+
+
+```{r parameter ~ white}
+d[, whiteZ := (white - mean(white, na.rm = T)) / sd(white, na.rm = T)]
+
+models_whiteZ <- list()
+m <- lmer(driftb1 ~ whiteZ * platformZ + (1 + whiteZ | study), d[condition == 0])
+models_whiteZ[['driftb1 ~ whiteZ']] <- m
+
+m <- lmer(driftb0 ~ whiteZ * platformZ + (1 + whiteZ | study), d[condition == 0])
+models_whiteZ[['driftb0 ~ whiteZ']] <- m
+
+m <- lmer(B ~ whiteZ * platformZ + (1 + whiteZ | study), d[condition == 0])
+models_whiteZ[['B ~ whiteZ']] <- m
+
+m <- lmer(nondectime ~ whiteZ * platformZ + (1 + whiteZ | study), d[condition == 0])
+models_whiteZ[['nondectime ~ whiteZ']] <- m
+
+m <- lmer(x0 ~ whiteZ * platformZ + (1 + whiteZ | study), d[condition == 0])
+models_whiteZ[['x0 ~ whiteZ']] <- m
+
+names(models_whiteZ)
+models_whiteZ <- dvnames(models_whiteZ)
+plot_whiteZ <- modelplot(models_whiteZ, color = "black", coef_omit = c("(Intercept)")) + facet_grid(~ model, scales = "free_x")
+plot_whiteZ
+  
+plot_whiteZ <- plot_whiteZ + 
+  geom_vline(xintercept = 0, col = 'grey', lty = 'dashed')
+plot_whiteZ
+
+summaryh(models_whiteZ$driftb0)
+summaryh(models_whiteZ$driftb1)
+
+ggsave("../figures/pyddm__drift_perc_acc/param_whiteZ.png", width = width, height = height, dpi = dpi)
+```
+
+
+
+
+```{r parameter ~ college}
+d[, collegeZ := (college - mean(college, na.rm = T)) / sd(college, na.rm = T)]
+
+models_collegeZ <- list()
+m <- lmer(driftb1 ~ collegeZ * platformZ + (1 + collegeZ | study), d[condition == 0])
+models_collegeZ[['driftb1 ~ collegeZ']] <- m
+
+m <- lmer(driftb0 ~ collegeZ * platformZ + (1 + collegeZ | study), d[condition == 0])
+models_collegeZ[['driftb0 ~ collegeZ']] <- m
+
+m <- lmer(B ~ collegeZ * platformZ + (1 + collegeZ | study), d[condition == 0])
+models_collegeZ[['B ~ collegeZ']] <- m
+
+m <- lmer(nondectime ~ collegeZ * platformZ + (1 + collegeZ | study), d[condition == 0])
+models_collegeZ[['nondectime ~ collegeZ']] <- m
+
+m <- lmer(x0 ~ collegeZ * platformZ + (1 + collegeZ | study), d[condition == 0])
+models_collegeZ[['x0 ~ collegeZ']] <- m
+
+names(models_collegeZ)
+models_collegeZ <- dvnames(models_collegeZ)
+plot_collegeZ <- modelplot(models_collegeZ, color = "black", coef_omit = c("(Intercept)")) + facet_grid(~ model, scales = "free_x")
+plot_collegeZ
+  
+plot_collegeZ <- plot_collegeZ + 
+  geom_vline(xintercept = 0, col = 'grey', lty = 'dashed')
+plot_collegeZ
+
+summaryh(models_collegeZ$driftb0)
+summaryh(models_collegeZ$driftb1)
+
+ggsave("../figures/pyddm__drift_perc_acc/param_collegeZ.png", width = width, height = height, dpi = dpi)
+```
+
+
+
+
+```{r parameter ~ accimp}
+d[, accimpZ := (accimp - mean(accimp, na.rm = T)) / sd(accimp, na.rm = T)]
+
+models_accimpZ <- list()
+m <- lmer(driftb1 ~ accimpZ * platformZ + (1 + accimpZ | study), d[condition == 0])
+models_accimpZ[['driftb1 ~ accimpZ']] <- m
+
+m <- lmer(driftb0 ~ accimpZ * platformZ + (1 + accimpZ | study), d[condition == 0])
+models_accimpZ[['driftb0 ~ accimpZ']] <- m
+
+m <- lmer(B ~ accimpZ * platformZ + (1 + accimpZ | study), d[condition == 0])
+models_accimpZ[['B ~ accimpZ']] <- m
+
+m <- lmer(nondectime ~ accimpZ * platformZ + (1 + accimpZ | study), d[condition == 0])
+models_accimpZ[['nondectime ~ accimpZ']] <- m
+
+m <- lmer(x0 ~ accimpZ * platformZ + (1 + accimpZ | study), d[condition == 0])
+models_accimpZ[['x0 ~ accimpZ']] <- m
+
+names(models_accimpZ)
+models_accimpZ <- dvnames(models_accimpZ)
+plot_accimpZ <- modelplot(models_accimpZ, color = "black", coef_omit = c("(Intercept)")) + facet_grid(~ model, scales = "free_x")
+plot_accimpZ
+  
+plot_accimpZ <- plot_accimpZ + 
+  geom_vline(xintercept = 0, col = 'grey', lty = 'dashed')
+plot_accimpZ
+
+summaryh(models_accimpZ$driftb0)
+summaryh(models_accimpZ$driftb1)
+
+ggsave("../figures/pyddm__drift_perc_acc/param_accimpZ.png", width = width, height = height, dpi = dpi)
+```

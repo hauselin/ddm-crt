@@ -1,0 +1,117 @@
+---
+title: "analyze_hddm"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+rm(list = ls())
+library(tidyverse); library(data.table); library(patchwork); library(hausekeep); library(lme4); library(lmerTest); library(ggbeeswarm); library(glue); library(modelsummary); library(brms); library(correlation)
+source('utils.R')
+theme_set(theme_minimal())
+```
+
+```{r}
+fit_hddm <- read_rds("../results/hddm_m0_country01.rds")
+fit_ddm <- fread("../results/params_pyddm_m0.csv")
+```
+
+```{r}
+fit_ddm <- fit_ddm[country == 1 & result == "success", .(id, Country = country, drift, B, x0, nondectime, rt, acc, rt0, rt1, acc_pred, rt_pred, rt0_pred, rt1_pred, result)]
+fit_ddm
+
+params <- data.table(fit_hddm$allIndPars)
+params$Country <- 1
+params
+setnames(params, "subjID", "id")
+params
+```
+
+
+```{r}
+dt1 <- left_join(fit_ddm, params) |> data.table()
+```
+
+
+```{r compare no-pooling vs partial-pooling parameters}
+cor_method <- "spearman"
+p11 <- plot(cor_test(dt1, "B", "alpha", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p12 <- plot(cor_test(dt1, "nondectime", "tau", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p13 <- plot(cor_test(dt1, "x0", "beta", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p14 <- plot(cor_test(dt1, "drift", "delta", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p15 <- (p11 + p12) / (p13 + p14)
+p15
+```
+
+
+```{r plot distributions}
+p1 <- ggplot(dt1, aes(B)) + geom_histogram()
+p2 <- ggplot(dt1, aes(alpha)) + geom_histogram()
+p1 / p2
+
+p1 <- ggplot(dt1, aes(nondectime)) + geom_histogram()
+p2 <- ggplot(dt1, aes(tau)) + geom_histogram()
+p1 / p2
+
+p1 <- ggplot(dt1, aes(x0)) + geom_histogram()
+p2 <- ggplot(dt1, aes(beta)) + geom_histogram()
+p1 / p2
+
+p1 <- ggplot(dt1, aes(drift)) + geom_histogram()
+p2 <- ggplot(dt1, aes(delta)) + geom_histogram()
+p1 / p2
+```
+
+
+```{r simulate data for each participant}
+library(RWiener)
+params
+n <- 2000
+
+i <- 1
+for (i in 1:nrow(dt1)) {
+    print(i)
+    temp <- dt1[i, ]
+    sim <- data.table(rwiener(n, temp$alpha, temp$tau, temp$beta, temp$delta))
+    dt1[i, wiener_rt_sim := sim[, mean(q, na.rm = T)]]
+    dt1[i, wiener_acc_sim := sim[, mean(ifelse(resp == "upper", 1, 0))]]
+    rts <- sim[, .(rt = mean(q, na.rm = T)), resp]
+    dt1[i, wiener_rt0_sim := rts[resp == "lower", rt]]
+    dt1[i, wiener_rt1_sim := rts[resp == "upper", rt]]
+}
+
+dt1
+```
+
+```{r wiener hddm model fit}
+
+
+cor_method <- "spearman"
+p11 <- plot(cor_test(dt1, "wiener_acc_sim", "acc", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p12 <- plot(cor_test(dt1, "wiener_rt_sim", "rt", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p13 <- plot(cor_test(dt1, "wiener_rt0_sim", "rt0", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p14 <- plot(cor_test(dt1, "wiener_rt1_sim", "rt1", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p15 <- (p11 + p12) / (p13 + p14)
+p15
+
+
+
+
+
+
+```
+
+```{r nopooling model fit}
+fit_ddm2 <- fit_ddm[result == "success", ]
+cor_method <- "spearman"
+p11 <- plot(cor_test(fit_ddm2, "acc_pred", "acc", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p12 <- plot(cor_test(fit_ddm2, "rt_pred", "rt", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p13 <- plot(cor_test(fit_ddm2, "rt0_pred", "rt0", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p14 <- plot(cor_test(fit_ddm2, "rt1_pred", "rt1", cor_method)) + geom_abline(lty = "dashed", col = 'red')
+p15 <- (p11 + p12) / (p13 + p14)
+p15
+
+
+```
+
