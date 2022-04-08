@@ -22,7 +22,7 @@ fit_model <- function(x) {
     fit <- choiceRT_ddm(temp_dt, niter = 5000, nwarmup = 1000, nchain = 4, ncore = 4)
     
     # save model
-    output <- paste0("../results/fold0_hddm_m0_country", sprintf("%02d", x), ".rds")
+    output <- paste0("../results/hddm_m0_country", sprintf("%02d", x), ".rds")
     message(paste0("Saving model to ", output))
     write_rds(fit, output)
 }
