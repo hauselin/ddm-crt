@@ -29,7 +29,7 @@ fit_model <- function(x) {
 
 
 # results <- mclapply(1:n_countries, fit_model, mc.cores = cores)
-for (c in 4:n_countries) {
+for (c in 5:n_countries) {
     print(paste0("fitting model to country ", c))
     fit_model(c)
 }
